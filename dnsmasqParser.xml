@@ -1,0 +1,77 @@
+<eventFormatRecognizer>
+	<![CDATA[<:gPatSyslogPRI>?<:gPatMon>\s+<:gPatDay>\s+<:gPatTime>\s(?:<reptDevIpAddr:gPatIpAddr>|<reptDevName:gPatHostName>)\sdnsmasq]]>
+</eventFormatRecognizer>
+<patternDefinitions></patternDefinitions>
+<parsingInstructions>
+	<collectFieldsByRegex src="$_rawmsg">
+		<regex>
+			<![CDATA[<:gPatSyslogPRI>?<:gPatMon>\s+<:gPatDay>\s+<:gPatTime>\s(?:<reptDevIpAddr:gPatIpAddr>|<reptDevName:gPatHostName>)\sdnsmasq\[<procId:gPatInt>\]:\s<_body:gPatMesgBody>]]>
+		</regex>
+	</collectFieldsByRegex>
+	<setEventAttribute attr="eventType">DnsmasqEvent</setEventAttribute>
+	<collectFieldsByRegex src="$_body">
+		<regex>
+			<![CDATA[<dnsTransactionId:gPatInt>\s<srcIpAddr:gPatIpAddr>/<srcIpPort:gPatIpPort>\s<_action:gPatWord>(?:\[<dnsQueryType:gPatWord>\])?\s<_detail:gPatMesgBody>]]>
+		</regex>
+	</collectFieldsByRegex>
+	<choose>
+		<when test='$_action = "query"'>
+			<setEventAttribute attr="eventType">DNS Generic Query</setEventAttribute>
+			<choose>
+				<when test='$dnsQueryType = "A"'>
+					<setEventAttribute attr="eventType">DnsmasqQueryA</setEventAttribute>
+					<collectFieldsByRegex src="$_detail">
+						<regex>
+							<![CDATA[<dnsQueryName:gPatHostName> from <_clientIP:gPatIpAddr>]]>
+						</regex>
+					</collectFieldsByRegex>
+					<when test="exist dnsQueryName">
+						<when test='not_matches($dnsQueryName, "\.local$")'>
+							<setEventAttribute attr="domainEntropy">calcDomainEntropy($dnsQueryName)</setEventAttribute>
+						</when>
+						<setEventAttribute attr="destName">$dnsQueryName</setEventAttribute>
+					</when>
+				</when>
+			</choose>
+			<choose>
+				<when test='$dnsQueryType = "PTR"'>
+					<setEventAttribute attr="eventType">DnsmasqQueryPTR</setEventAttribute>
+					<!-- parse ip address from reverse dns lookup e.g. ipv4 PTR records -->
+					<collectFieldsByRegex src="$_detail">
+						<regex>
+							<![CDATA[^<_4thOctet:gPatInt>\.<_3rdOctet:gPatInt>\.<_2ndOctet:gPatInt>\.<_1stOctet:gPatInt>\.in-addr\.arpa from <_clientIP:gPatIpAddr>$]]>
+						</regex>
+					</collectFieldsByRegex>
+					<setEventAttribute attr="ipVersion">4</setEventAttribute>
+					<setEventAttribute attr="_invertedAddr">combineMsgId($_1stOctet,".",$_2ndOctet,".",$_3rdOctet,".",$_4thOctet)</setEventAttribute>
+					<setEventAttribute attr="dnsQueryIpAddr">$_invertedAddr</setEventAttribute>
+					<!-- rule compat<setEventAttribute attr="destName">$_invertedAddr</setEventAttribute> -->
+				</when>
+			</choose>
+		</when>
+		<when test='$_action = "reply"'>
+			<setEventAttribute attr="eventType">DNS Reply</setEventAttribute>
+			<collectAndSetAttrByRegex src="$_detail">
+				<regex>
+					<![CDATA[.*]]>
+				</regex>
+			</collectAndSetAttrByRegex>
+		</when>
+		<when test='$_action = "forwarded"'>
+			<setEventAttribute attr="eventType">DNS Query Forwarded</setEventAttribute>
+			<collectAndSetAttrByRegex src="$_detail">
+				<regex>
+					<![CDATA[.*]]>
+				</regex>
+			</collectAndSetAttrByRegex>
+		</when>
+		<when test='$_action = "cached"'>
+			<setEventAttribute attr="eventType">DNS Cached Response</setEventAttribute>
+			<collectAndSetAttrByRegex src="$_detail">
+				<regex>
+					<![CDATA[.*]]>
+				</regex>
+			</collectAndSetAttrByRegex>
+		</when>
+	</choose>
+</parsingInstructions>
